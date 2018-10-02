@@ -1,0 +1,75 @@
+---
+# tasks file for apache2
+    - name: install apache server
+      apt: name=apache2 state=present update_cache=yes
+
+    - name: ensure apache2 started
+      service: name=apache2 state=started enabled=yes
+
+    - name: activate SSL Module
+      command: a2enmod ssl
+      notify: restart apache2
+
+    - name: activate Rewrite Module
+      apache2_module:
+           state: present
+           name: rewrite
+      notify: restart apache2
+
+    - name: copy web app source
+      copy: src=/home/ubuntu/challenge/index.html dest=/var/www/html mode=0755
+      notify: restart apache2
+
+    - name: copy myserver com conf 
+      copy: src=/home/ubuntu/challenge/myserver.com.conf  dest=/etc/apache2/sites-available/ mode=0755
+      notify: restart apache2
+
+    - name: create ansible ssl directory
+      file:
+        path: /etc/apache2/ssl
+        state: directory
+        mode: 0600
+
+    - name: Generate RSA key
+      command: openssl genrsa -out /etc/apache2/ssl/myserver.key 2048 creates=/etc/apache2/ssl/myserver.key
+
+    - name: Modify key file previlgies
+      file: path=/etc/apache2/ssl/myserver.key owner=root group=root mode=0600
+
+    - name: Generate selfsigned certificate
+      command: openssl req -new -nodes -x509 -days 730 
+             -subj  "/C=US/ST=PA/L=Philadelphia/O=KING/CN=myserver.com" 
+             -keyout  /etc/apache2/ssl/myserver.key
+             -out  /etc/apache2/ssl/myserver.crt 
+             -extensions v3_ca creates=/etc/apache2/ssl/myserver.crt
+
+    - name: Modify key file previlgies
+      file: path=/etc/apache2/ssl/myserver.crt owner=root group=root mode=0600
+
+    - name: configure certificate path
+      lineinfile: dest=/etc/apache2/sites-available/myserver.com.conf regexp="^\\t\\tSSLCertificateFile"  line="\t\tSSLCertificateFile    /etc/apache2/ssl/myserver.crt"
+      notify: restart apache2
+
+    - name: configure key path
+      lineinfile: dest=/etc/apache2/sites-available/myserver.com.conf regexp="^\\t\\tSSLCertificateKeyFile"  line="\t\tSSLCertificateKeyFile /etc/apache2/ssl/myserver.key"
+      notify: restart apache2
+
+    - name: de-activate default apache site
+      file: path=/etc/apache2/sites-enabled/default-ssl.conf state=absent
+      notify: restart apache2
+
+    - name: activate demo apache site
+      file: src=/etc/apache2/sites-available/myserver.com.conf dest=/etc/apache2/sites-enabled/myserver.com.conf state=link
+      notify: restart apache2
+
+    - name: turn rewrite engine on
+      lineinfile: dest=/etc/apache2/apache2.conf regexp="^RewriteEngine" line="RewriteEngine on"
+      notify: restart apache2
+    
+    - name: turn rewrite engine on
+      lineinfile: dest=/etc/apache2/apache2.conf regexp="^RewriteCond" line="RewriteCond %{HTTPS} !=on"
+      notify: restart apache2
+
+    - name: turn rewrite engine on
+      lineinfile: dest=/etc/apache2/apache2.conf regexp="^RewriteRule" line="RewriteRule ^/?(.*) https://myserver.com/$1 [R,L]"
+      notify: restart apache2
